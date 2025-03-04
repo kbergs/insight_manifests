@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drupal
+  namespace: drupal
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: drupal
+  template:
+    metadata:
+      labels:
+        app: drupal
+    spec:
+      initContainers:
+        - name: import-database
+          image: mariadb:latest
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Waiting for MariaDB to be ready...";
+              until mysqladmin ping -h mariadb -u root --password=root 2>/dev/null; do sleep 2; done;
+              echo "Importing database...";
+              gunzip < /gitrepo/install.sql.gz | mysql -h mariadb -u root --password=root drupal;
+              echo "Database import complete.";
+          volumeMounts:
+            - name: git-repo
+              mountPath: /gitrepo
+      containers:
+        - name: drupal
+          image: drupal:latest
+          ports:
+            - containerPort: 80
+        - name: git-sync
+          image: k8s.gcr.io/git-sync:v3.2.2  # Git sync sidecar
+          args:
+            - "--repo=https://github.com/kbergs/insight_manifests.git"
+            - "--branch=main"
+            - "--root=/gitrepo"
+            - "--wait=30"  # Sync every 30 seconds
+          volumeMounts:
+            - name: git-repo
+              mountPath: /gitrepo
+      volumes:
+        - name: git-repo
+          emptyDir: {}
+
